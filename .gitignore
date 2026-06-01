@@ -1,0 +1,47 @@
+# Build output
+/build/
+/out/
+/x64/
+/Win32/
+*.aex
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.idb
+*.log
+*.tlog
+*.user
+*.suo
+.vs/
+*.VC.db
+*.VC.opendb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.cmake.stamp
+
+# macOS build
+*.plugin/
+DerivedData/
+*.xcworkspace/xcuserdata/
+
+# After Effects SDK is NOT vendored — set AE_SDK_PATH instead
+/sdk/
+/AfterEffectsSDK/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+
+# Vendored SDKs (large; fetched/extracted locally) and generated OpenCL import lib
+/aesdk/
+/sdk2/
+/AfterEffectsSDK_*.zip
+/vendor/OpenCL.lib
+/vendor/OpenCL.exp
+/vendor/OpenCL.def
