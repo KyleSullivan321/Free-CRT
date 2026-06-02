@@ -20,9 +20,24 @@
 #include "Param_Utils.h"
 #include "AE_EffectSuites.h"
 
+/* GPU framework per platform: Windows -> OpenCL, macOS -> Metal. Both fall back
+   to the CPU Smart Render path when the host's GPU framework isn't supported. */
 #ifdef AE_OS_WIN
+	#define HAS_OPENCL 1
+	#define HAS_METAL  0
 	#include <Windows.h>
 	#include <CL/cl.h>
+#elif defined(AE_OS_MAC)
+	#define HAS_OPENCL 0
+	#define HAS_METAL  1
+	/* <Metal/Metal.h> is imported only in FreeCRT.cpp (compiled as Obj-C++ on
+	   macOS) so the CPU-only translation units stay plain C++. */
+#endif
+#ifndef HAS_OPENCL
+	#define HAS_OPENCL 0
+#endif
+#ifndef HAS_METAL
+	#define HAS_METAL 0
 #endif
 
 /* ---- Versioning (also written into the PiPL) ---- */

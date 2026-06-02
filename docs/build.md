@@ -23,7 +23,7 @@ fresh clone you must supply them once:
 You also need **Visual Studio Build Tools** with the **Desktop development with
 C++** (x64) workload.
 
-## Build
+## Build — Windows (OpenCL GPU + CPU)
 
 From a **VS x64 developer prompt** (so `cl.exe`, `rc.exe`, `link.exe`, `lib.exe`
 are on PATH), at the repo root:
@@ -32,12 +32,29 @@ are on PATH), at the repo root:
 win\build_gpu.cmd
 ```
 
-This: generates the PiPL (`cl /EP` → `PiPLtool.exe`), compiles the four sources
-(`FreeCRT.cpp`, `CRT_Render.cpp`, `CRT_Presets.cpp`, `CRT_Strings.cpp`), compiles
-`win\FreeCRT.rc`, and links `build\Release\FreeCRT.aex` against `vendor\OpenCL.lib`.
+This: generates the PiPL (`cl /EP` → `PiPLtool.exe`), compiles the sources,
+compiles `win\FreeCRT.rc`, and links `build\Release\FreeCRT.aex` against
+`vendor\OpenCL.lib`. On Windows the Metal code is `#if`-compiled out.
 
 > If `cl.exe` isn't found, open the **"x64 Native Tools Command Prompt for VS"**
 > (or run `vcvars64.bat`) first.
+
+## Build — macOS (Metal GPU + CPU) — ⚠️ untested
+
+Requires Xcode command-line tools and the AE SDK. From the repo root:
+
+```bash
+AE_SDK_PATH=/path/to/AfterEffectsSDK ./mac/build_mac.sh
+```
+
+This compiles `FreeCRT.cpp` as **Objective-C++** (for the Metal device code) and
+the others as C++, links a universal `.plugin` bundle against the Metal /
+Foundation frameworks, compiles the PiPL with **Rez**, and assembles
+`build/mac/FreeCRT.plugin`. On macOS the OpenCL code is `#if`-compiled out.
+
+This path was written on Windows and **has not been built/run on macOS**. If it
+needs adjusting, mirror the AE SDK's `SDK_Invert_ProcAmp` Xcode project
+(`Examples/Effect/SDK_Invert_ProcAmp/Mac`).
 
 ## Install
 

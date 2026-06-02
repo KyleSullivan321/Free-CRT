@@ -45,3 +45,8 @@ Thumbs.db
 /vendor/OpenCL.lib
 /vendor/OpenCL.exp
 /vendor/OpenCL.def
+
+# Project-process / AI files — kept locally, not part of the published extension
+/CLAUDE.md
+/GOAL.md
+/skills/

@@ -6,12 +6,14 @@ an **OpenCL GPU** path (`PF_Cmd_GPU_DEVICE_SETUP` + `CRT_Kernel_CL.h`).
 
 ## Done in iteration 2
 - [x] **Smart Render + 32bpc float** (`SMART_PRE_RENDER` / `SMART_RENDER`).
-- [x] **OpenCL GPU** kernel + device setup/dispatch (BGRA128 float).
+- [x] **OpenCL GPU** kernel + device setup/dispatch (BGRA128 float) — Windows.
+- [x] **Metal GPU** kernel + device setup/dispatch — macOS (written, **untested**).
 - [x] Threaded rendering flag (`PF_OutFlag2_SUPPORTS_THREADED_RENDERING`).
 
 ## Next steps
-- [ ] Add **CUDA** (`.cu`) and **Metal** kernels so GPU render works on machines
-      where AE selects those frameworks (currently OpenCL-only).
+- [ ] **Verify the macOS/Metal build** on real hardware (written on Windows).
+- [ ] Add a **CUDA** (`.cu`) kernel so GPU render also works in CUDA-mode AE on
+      Windows/NVIDIA (currently CUDA mode falls back to CPU).
 - [ ] Make the GPU glow/blur a true multi-pass bloom (intermediate GPU buffers)
       to match the CPU path, and add Auto Exposure on GPU.
 - [ ] Replace the CPU 3-pass box blur with a gaussian / dual-Kawase bloom.

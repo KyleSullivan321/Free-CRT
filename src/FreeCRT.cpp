@@ -2,24 +2,73 @@
 	FreeCRT.cpp — Free CRT.
 
 	Smart Render effect with a CPU path (full-quality, reuses CRT_RenderImage)
-	and an OpenCL GPU path (CRT_Kernel_CL.h). Structure follows Adobe's
-	SDK_Invert_ProcAmp GPU sample. Built against the AE 25.6 SDK.
+	and a GPU path: OpenCL on Windows (CRT_Kernel_CL.h), Metal on macOS
+	(CRT_Kernel_Metal.h). Structure follows Adobe's SDK_Invert_ProcAmp GPU
+	sample. On a host whose GPU framework we don't support, the effect renders
+	on the CPU. On macOS this file is compiled as Objective-C++.
 */
 
 #include "FreeCRT.h"
 #include "CRT_Strings.h"
 #include "CRT_Presets.h"
-#include "CRT_Kernel_CL.h"
 
 #include <new>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
 
-inline PF_Err CL2Err(cl_int r) { return r == CL_SUCCESS ? PF_Err_NONE : PF_Err_INTERNAL_STRUCT_DAMAGED; }
-#define CL_ERR(FUNC) ERR(CL2Err(FUNC))
+#if HAS_OPENCL
+	#include "CRT_Kernel_CL.h"
+	inline PF_Err CL2Err(cl_int r) { return r == CL_SUCCESS ? PF_Err_NONE : PF_Err_INTERNAL_STRUCT_DAMAGED; }
+	#define CL_ERR(FUNC) ERR(CL2Err(FUNC))
+	struct OpenCLGPUData { cl_kernel crt_kernel; };
+#endif
 
-struct OpenCLGPUData { cl_kernel crt_kernel; };
+#if HAS_METAL
+	#import <Metal/Metal.h>
+	#include "CRT_Kernel_Metal.h"
+	struct MetalGPUData { id<MTLComputePipelineState> crt_pipeline; };
+	static PF_Err NSError2PFErr(NSError* e) { return e ? PF_Err_INTERNAL_STRUCT_DAMAGED : PF_Err_NONE; }
+	struct ScopedAutoreleasePool {
+		ScopedAutoreleasePool() : mPool([[NSAutoreleasePool alloc] init]) {}
+		~ScopedAutoreleasePool() { [mPool release]; }
+		NSAutoreleasePool* mPool;
+	};
+#endif
+
+/* Host-side GPU params; layout MUST match the CRTParams struct in the Metal
+   kernel (CRT_Kernel_Metal.h). The OpenCL path passes these as individual args. */
+typedef struct {
+	int   inPitch, outPitch, in16f, width, height;
+	float brightness, glowIntensity;
+	int   pixelType;
+	float pixelSize, pixelSharp, pixelBright;
+	float bulgeStrength, bulgeCx, bulgeCy;
+	float scanInt, scanSpeed, flickerInt, posterize, bulb;
+	float tintR, tintG, tintB;
+	float blurAmt, blurHBias;
+	float aberrAmt, aberrAngle, noise, vhold;
+	float glowRadius, glowThr, glowSat;
+	float boostSat, inputGamma, tonemap;
+	int   linearWF;
+	float timeSecs;
+} CRTGpuParams;
+
+static void FillGpuParams(CRTGpuParams* g, const CRT_Settings* s, int inPitch, int outPitch, int w, int h)
+{
+	g->inPitch = inPitch; g->outPitch = outPitch; g->in16f = 0; g->width = w; g->height = h;
+	g->brightness = s->brightness; g->glowIntensity = s->glow_intensity;
+	g->pixelType = s->pixel_type; g->pixelSize = s->pixel_size; g->pixelSharp = s->pixel_sharpness; g->pixelBright = s->pixel_brightness;
+	g->bulgeStrength = s->bulge_strength; g->bulgeCx = s->bulge_cx; g->bulgeCy = s->bulge_cy;
+	g->scanInt = s->scanlines_intensity; g->scanSpeed = s->scanlines_speed; g->flickerInt = s->flicker_intensity;
+	g->posterize = s->posterize_levels; g->bulb = s->bulb_reflections;
+	g->tintR = s->tint_r; g->tintG = s->tint_g; g->tintB = s->tint_b;
+	g->blurAmt = s->blur_amount; g->blurHBias = s->blur_hbias;
+	g->aberrAmt = s->aberr_amount; g->aberrAngle = s->aberr_angle; g->noise = s->noise; g->vhold = s->vertical_hold;
+	g->glowRadius = s->glow_radius; g->glowThr = s->glow_threshold; g->glowSat = s->glow_saturation;
+	g->boostSat = s->boost_saturation; g->inputGamma = s->input_gamma; g->tonemap = s->tonemapping;
+	g->linearWF = s->linear_workflow; g->timeSecs = s->time_secs;
+}
 
 static void UnionLRect(const PF_LRect* src, PF_LRect* dst)
 {
@@ -312,6 +361,7 @@ static PF_Err GPUDeviceSetup(PF_InData* in_data, PF_OutData* out_data, PF_GPUDev
 
 	gpu_suite->GetDeviceInfo(in_data->effect_ref, extraP->input->device_index, &device_info);
 
+#if HAS_OPENCL
 	if (extraP->input->what_gpu == PF_GPU_Framework_OPENCL) {
 		PF_Handle gpu_dataH = handle_suite->host_new_handle(sizeof(OpenCLGPUData));
 		OpenCLGPUData* cl_gpu_data = reinterpret_cast<OpenCLGPUData*>(*gpu_dataH);
@@ -334,21 +384,59 @@ static PF_Err GPUDeviceSetup(PF_InData* in_data, PF_OutData* out_data, PF_GPUDev
 		extraP->output->gpu_data = gpu_dataH;
 		out_data->out_flags2 = PF_OutFlag2_SUPPORTS_GPU_RENDER_F32;
 	}
+#endif
+#if HAS_METAL
+	if (extraP->input->what_gpu == PF_GPU_Framework_METAL) {
+		ScopedAutoreleasePool pool;
+		NSString* source = [NSString stringWithCString:kCRT_Kernel_MetalString encoding:NSUTF8StringEncoding];
+		id<MTLDevice> device = (id<MTLDevice>)device_info.devicePV;
+
+		NSError* error = nil;
+		id<MTLLibrary> library = [[device newLibraryWithSource:source options:nil error:&error] autorelease];
+		if (!err && !library) err = NSError2PFErr(error);
+
+		if (!err) {
+			PF_Handle gpu_dataH = handle_suite->host_new_handle(sizeof(MetalGPUData));
+			MetalGPUData* metal_data = reinterpret_cast<MetalGPUData*>(*gpu_dataH);
+			id<MTLFunction> fn = [[library newFunctionWithName:@"CRTKernel"] autorelease];
+			if (!fn) { err = PF_Err_INTERNAL_STRUCT_DAMAGED; }
+			if (!err) {
+				metal_data->crt_pipeline = [device newComputePipelineStateWithFunction:fn error:&error];
+				err = NSError2PFErr(error);
+			}
+			if (!err) {
+				extraP->output->gpu_data = gpu_dataH;
+				out_data->out_flags2 = PF_OutFlag2_SUPPORTS_GPU_RENDER_F32;
+			}
+		}
+	}
+#endif
+	/* For an unsupported framework we leave out_flags2 unset, so AE renders the
+	   effect on the CPU instead. */
 	return err;
 }
 
 static PF_Err GPUDeviceSetdown(PF_InData* in_data, PF_OutData* out_data, PF_GPUDeviceSetdownExtra* extraP)
 {
 	PF_Err err = PF_Err_NONE;
+	AEFX_SuiteScoper<PF_HandleSuite1> handle_suite =
+		AEFX_SuiteScoper<PF_HandleSuite1>(in_data, kPFHandleSuite, kPFHandleSuiteVersion1, out_data);
+#if HAS_OPENCL
 	if (extraP->input->what_gpu == PF_GPU_Framework_OPENCL) {
 		PF_Handle gpu_dataH = (PF_Handle)extraP->input->gpu_data;
 		OpenCLGPUData* cl_gpu_data = reinterpret_cast<OpenCLGPUData*>(*gpu_dataH);
 		(void)clReleaseKernel(cl_gpu_data->crt_kernel);
-
-		AEFX_SuiteScoper<PF_HandleSuite1> handle_suite =
-			AEFX_SuiteScoper<PF_HandleSuite1>(in_data, kPFHandleSuite, kPFHandleSuiteVersion1, out_data);
 		handle_suite->host_dispose_handle(gpu_dataH);
 	}
+#endif
+#if HAS_METAL
+	if (extraP->input->what_gpu == PF_GPU_Framework_METAL) {
+		PF_Handle gpu_dataH = (PF_Handle)extraP->input->gpu_data;
+		MetalGPUData* metal_data = reinterpret_cast<MetalGPUData*>(*gpu_dataH);
+		[metal_data->crt_pipeline release];
+		handle_suite->host_dispose_handle(gpu_dataH);
+	}
+#endif
 	return err;
 }
 
@@ -415,6 +503,7 @@ static PF_Err SmartRenderGPU(PF_InData* in_data, PF_OutData* out_data, PF_PixelF
 	int dstPitch = output->rowbytes / bpp;
 	int is16f = 0;
 
+#if HAS_OPENCL
 	if (!err && extraP->input->what_gpu == PF_GPU_Framework_OPENCL) {
 		PF_Handle gpu_dataH = (PF_Handle)extraP->input->gpu_data;
 		OpenCLGPUData* cl = reinterpret_cast<OpenCLGPUData*>(*gpu_dataH);
@@ -468,6 +557,38 @@ static PF_Err SmartRenderGPU(PF_InData* in_data, PF_OutData* out_data, PF_PixelF
 		size_t grid[2] = { RoundUp(width, threadBlock[0]), RoundUp(height, threadBlock[1]) };
 		CL_ERR(clEnqueueNDRangeKernel((cl_command_queue)device_info.command_queuePV, k, 2, 0, grid, threadBlock, 0, 0, 0));
 	}
+#endif // HAS_OPENCL
+#if HAS_METAL
+	if (!err && extraP->input->what_gpu == PF_GPU_Framework_METAL) {
+		ScopedAutoreleasePool pool;
+		PF_Handle gpu_dataH = (PF_Handle)extraP->input->gpu_data;
+		MetalGPUData* metal = reinterpret_cast<MetalGPUData*>(*gpu_dataH);
+
+		CRTGpuParams params;
+		FillGpuParams(&params, s, srcPitch, dstPitch, width, height);
+
+		id<MTLDevice> device = (id<MTLDevice>)device_info.devicePV;
+		id<MTLBuffer> param_buffer = [[device newBufferWithBytes:&params
+														 length:sizeof(CRTGpuParams)
+														options:MTLResourceStorageModeManaged] autorelease];
+
+		id<MTLCommandQueue> queue = (id<MTLCommandQueue>)device_info.command_queuePV;
+		id<MTLCommandBuffer> commandBuffer = [queue commandBuffer];
+		id<MTLComputeCommandEncoder> enc = [commandBuffer computeCommandEncoder];
+		[enc setComputePipelineState:metal->crt_pipeline];
+		[enc setBuffer:(id<MTLBuffer>)src_mem offset:0 atIndex:0];
+		[enc setBuffer:(id<MTLBuffer>)dst_mem offset:0 atIndex:1];
+		[enc setBuffer:param_buffer offset:0 atIndex:2];
+
+		MTLSize threadsPerGroup = { 16, 16, 1 };
+		MTLSize numGroups = { (NSUInteger)((width + 15) / 16), (NSUInteger)((height + 15) / 16), 1 };
+		[enc dispatchThreadgroups:numGroups threadsPerThreadgroup:threadsPerGroup];
+		[enc endEncoding];
+		[commandBuffer commit];
+		[commandBuffer waitUntilCompleted];
+		err = NSError2PFErr([commandBuffer error]);
+	}
+#endif // HAS_METAL
 	return err;
 }
 

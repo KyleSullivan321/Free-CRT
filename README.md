@@ -1,67 +1,81 @@
 # Free CRT
 
 An Adobe After Effects effect plugin that recreates the look of retro CRT and
-monitor screens: scanlines, glass "bulge", an RGB phosphor mask, glow/bloom,
-chromatic aberration, posterize, flicker, and a full color-grade — plus a preset
-menu. GPU (OpenCL) accelerated.
+monitor screens: scanlines, glass "bulge" (a macro-lens sphere), an RGB phosphor
+mask, glow/bloom, chromatic aberration, posterize, flicker, and a full
+color-grade — plus a preset menu. **GPU-accelerated** (OpenCL on Windows, Metal
+on macOS) with a CPU fallback.
 
 > An independent, from-scratch effect built for learning/creative use. It ships
 > no third-party code or assets.
 
-## Status — iteration 2 (GPU)
+Registers in After Effects under **Effect → Free CRT → Free CRT**.
 
-Built against the **AE 25.6 SDK** as a **Smart Render** effect with two paths:
-a full-quality **CPU** pipeline (8/16/32-bpc float) and an **OpenCL GPU** path
-(32-bpc float). Registers under **Effect → Free CRT → Free CRT**.
+## Install (new users)
 
-What works:
-- Full parameter UI grouped into Pixels / Screen / Blurring / Aberrations / Glow
-  plus top-level brightness, glow, saturation, gamma, tonemap.
-- 7 presets (Midnight Arcade, Broadcast '83, Dead Channel, Pocket LCD,
-  Hi-Fi Grille, Acid Wash, Night Shift) via the **Presets** popup.
-- CPU pipeline (`CRT_Render.cpp`) and OpenCL kernel (`CRT_Kernel_CL.h`).
+**Option A — prebuilt binary (recommended for non-developers).**
+Grab the build for your OS from the repo's **[Releases](../../releases)** page,
+then drop it into After Effects' Plug-ins folder and restart AE:
 
-GPU notes: the OpenCL path approximates glow/blur with bounded multi-tap
-sampling (single pass) and does not apply Auto Exposure (a whole-image average);
-the CPU path is full quality. See [`docs/roadmap.md`](docs/roadmap.md).
+| OS | File | Copy to |
+|----|------|---------|
+| Windows | `FreeCRT.aex` | `C:\Program Files\Adobe\Adobe After Effects <ver>\Support Files\Plug-ins\` |
+| macOS | `FreeCRT.plugin` | `/Applications/Adobe After Effects <ver>/Plug-ins/` |
 
-## Build & install (Windows, GPU)
+*(No Releases yet? Then build it from source — below. The repo itself does not
+contain a compiled plugin.)*
 
-```powershell
-# from a VS x64 developer prompt, at the repo root:
-win\build_gpu.cmd
-# -> build\Release\FreeCRT.aex   then run Install_FreeCRT.cmd (approve UAC)
+**Option B — build it yourself.** See **Build from source**.
+
+## Build from source
+
+You need the **Adobe After Effects SDK** (free, Adobe ID) — it is not
+redistributable, so it isn't in this repo. Download it from
+<https://developer.adobe.com/after-effects/> and point `AE_SDK_PATH` at it (the
+folder containing `Examples/Headers`). Full details + verification:
+[`docs/build.md`](docs/build.md).
+
+### Windows (OpenCL GPU + CPU)
+```bat
+:: from an "x64 Native Tools Command Prompt for VS", at the repo root:
+win\build_gpu.cmd                  :: -> build\Release\FreeCRT.aex
+Install_FreeCRT.cmd                :: copies it into AE's Plug-ins (approve UAC)
 ```
+Uses the vendored Khronos `CL` headers in `vendor/` and an `OpenCL.lib` generated
+from the system `OpenCL.dll` (see `docs/build.md`).
 
-`build_gpu.cmd` builds against the AE 25.6 SDK in `aesdk/`, the vendored Khronos
-`CL` headers in `vendor/`, and an `OpenCL.lib` generated from `OpenCL.dll`.
-More detail + verification steps: [`docs/build.md`](docs/build.md).
+### macOS (Metal GPU + CPU) — ⚠️ untested
+```bash
+AE_SDK_PATH=/path/to/AfterEffectsSDK ./mac/build_mac.sh   # -> build/mac/FreeCRT.plugin
+# copy FreeCRT.plugin into /Applications/Adobe After Effects <ver>/Plug-ins/
+```
+The Mac/Metal path is written but has **not** been compiled on macOS yet; if the
+script needs adjusting, the AE SDK's `SDK_Invert_ProcAmp` Xcode project is the
+reference.
+
+## How GPU is selected
+
+The effect is a Smart Render plugin. After Effects renders it on the GPU when the
+project uses **Mercury GPU Acceleration** (File → Project Settings → Video
+Rendering and Effects): **OpenCL** on Windows, **Metal** on macOS. If the host's
+GPU framework isn't one of those (e.g. CUDA-mode AE), it falls back to the
+full-quality **CPU** path automatically.
 
 ## Layout
 
 ```
-src/        plugin source (AE plumbing, CPU render, OpenCL kernel)
-resources/  PiPL (how AE discovers the effect)
-win/        build_gpu.cmd + FreeCRT.rc
-vendor/     Khronos CL headers + generated OpenCL.lib
-docs/       feature spec, preset spec, build guide, roadmap, reference imgs
-skills/     vendored Karpathy coding guidelines this project follows
-GOAL.md     the success criteria driving the current iteration
+src/        plugin source — FreeCRT.cpp (AE plumbing + GPU dispatch),
+            CRT_Render.cpp (CPU), CRT_Kernel_CL.h (OpenCL), CRT_Kernel_Metal.h (Metal),
+            CRT_Presets.*, CRT_Strings.*
+resources/  PiPL (effect registration) + Info.plist (macOS bundle)
+win/        build_gpu.cmd + FreeCRT.rc        mac/  build_mac.sh
+vendor/CL/  Khronos OpenCL headers
+docs/       feature/preset specs, build guide, roadmap
 ```
 
-Key files: [`src/FreeCRT.cpp`](src/FreeCRT.cpp) (AE integration: Smart Render,
-GPU device setup, dispatch), [`src/CRT_Render.cpp`](src/CRT_Render.cpp) (CPU
-look), [`src/CRT_Kernel_CL.h`](src/CRT_Kernel_CL.h) (OpenCL kernel),
-[`src/CRT_Presets.cpp`](src/CRT_Presets.cpp) (preset tables). The parameter enum
-in [`src/FreeCRT.h`](src/FreeCRT.h) is the single source of truth that the PiPL,
-UI, presets, CPU render, and GPU kernel all key off.
-
-## How it's built (for contributors)
-
-This project follows the vendored
-[Karpathy guidelines](skills/karpathy-guidelines/SKILL.md): simplest code that
-solves the problem, surgical changes, explicit assumptions, and goal-driven
-verification (`GOAL.md`).
+The parameter enum in [`src/FreeCRT.h`](src/FreeCRT.h) is the single source of
+truth that the PiPL, parameter UI, presets, CPU render, and both GPU kernels key
+off.
 
 ## License
 
