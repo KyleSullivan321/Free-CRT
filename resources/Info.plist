@@ -10,8 +10,8 @@
 	<key>CFBundleName</key>                   <string>Free CRT</string>
 	<key>CFBundlePackageType</key>            <string>eFKT</string>
 	<key>CFBundleSignature</key>              <string>FXTC</string>
-	<key>CFBundleShortVersionString</key>     <string>0.2.0</string>
-	<key>CFBundleVersion</key>                <string>0.2.0</string>
+	<key>CFBundleShortVersionString</key>     <string>0.2.1</string>
+	<key>CFBundleVersion</key>                <string>0.2.1</string>
 	<key>CSResourcesFileMapped</key>          <true/>
 	<key>LSMinimumSystemVersion</key>         <string>11.0</string>
 </dict>

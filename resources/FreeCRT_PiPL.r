@@ -30,8 +30,8 @@ resource 'PiPL' (16000) {
 		AE_PiPL_Version { 2, 0 },
 		AE_Effect_Spec_Version { PF_PLUG_IN_VERSION, PF_PLUG_IN_SUBVERS },
 
-		/* 0.2.0 develop(0) build 1 = (2<<15)|1 = 65537 */
-		AE_Effect_Version { 65537 },
+		/* 0.2.1 develop(0) build 1 = (2<<15)|(1<<11)|1 = 67585 */
+		AE_Effect_Version { 67585 },
 		AE_Effect_Info_Flags { 0 },
 
 		/* Must mirror GlobalSetup exactly (AE warns otherwise):

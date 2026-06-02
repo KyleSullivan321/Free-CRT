@@ -43,7 +43,7 @@
 /* ---- Versioning (also written into the PiPL) ---- */
 #define	CRT_MAJOR_VERSION	0
 #define	CRT_MINOR_VERSION	2
-#define	CRT_BUG_VERSION		0
+#define	CRT_BUG_VERSION		1
 #define	CRT_STAGE_VERSION	PF_Stage_DEVELOP
 #define	CRT_BUILD_VERSION	1
 
