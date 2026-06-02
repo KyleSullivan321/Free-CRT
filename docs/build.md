@@ -85,6 +85,23 @@ REM write them into vendor\OpenCL.def as "EXPORTS\n<name>\n..."
 lib /def:vendor\OpenCL.def /machine:x64 /out:vendor\OpenCL.lib
 ```
 
+## Continuous builds (GitHub Actions)
+
+`.github/workflows/build.yml` builds **both** Windows (`.aex`) and macOS
+(`.plugin`) on GitHub's runners, uploads each as a downloadable **artifact**, and
+— when run on a `v*` tag — attaches them to that release. This is how macOS
+binaries get produced for testers (no Mac needed locally).
+
+**One-time setup:** add a repo **secret** `AE_SDK_URL` — a direct-download URL to
+a `.zip` of the AE SDK whose contents include `Examples/Headers/AE_Effect.h`
+(the SDK isn't redistributable, so host it privately and point the secret at it).
+
+**Use it:** Actions tab → **build** → *Run workflow* to get test artifacts
+without a release, or push a tag (e.g. `v0.2.1`) to also publish to that release.
+
+> Status: the workflow and the macOS/Metal path are written but **not yet run** —
+> the first CI run is the verification step.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

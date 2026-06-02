@@ -1,0 +1,101 @@
+name: build
+
+# Builds Free CRT for Windows (OpenCL) and macOS (Metal), uploads both as
+# downloadable artifacts, and — when run on a version tag (v*) — attaches them
+# to the matching GitHub Release.
+#
+# REQUIRES one repo secret: AE_SDK_URL — a direct-download URL to a .zip of the
+# After Effects SDK whose contents include  Examples/Headers/AE_Effect.h
+# (the AE SDK is not redistributable, so it can't live in this repo; host it
+# privately and point this secret at it). See docs/build.md.
+#
+# Run it from the Actions tab (workflow_dispatch) to get test artifacts without
+# cutting a release, or push a tag like v0.2.1 to also publish to that release.
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Fetch AE SDK
+        shell: pwsh
+        env:
+          AE_SDK_URL: ${{ secrets.AE_SDK_URL }}
+        run: |
+          if (-not $env:AE_SDK_URL) { throw "Set the AE_SDK_URL repo secret (zip containing Examples/Headers/AE_Effect.h)." }
+          Invoke-WebRequest $env:AE_SDK_URL -OutFile sdk.zip
+          Expand-Archive sdk.zip -DestinationPath aesdk_dl -Force
+          $h = Get-ChildItem -Recurse aesdk_dl -Filter AE_Effect.h | Where-Object { $_.FullName -match 'Examples[\\/]Headers' } | Select-Object -First 1
+          if (-not $h) { throw "Examples/Headers/AE_Effect.h not found inside the SDK zip." }
+          $root = $h.Directory.Parent.Parent.FullName    # ...\Examples\Headers -> SDK root
+          "AE_SDK_PATH=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Generate OpenCL.lib from system OpenCL.dll
+        shell: pwsh
+        run: |
+          $dll = "C:\Windows\System32\OpenCL.dll"
+          if (-not (Test-Path $dll)) { throw "OpenCL.dll not present on the runner." }
+          $raw = dumpbin /exports $dll
+          $names = foreach ($l in ($raw -split "`r?`n")) { if ($l -match '^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{6,}\s+(cl\w+)') { $Matches[1] } }
+          ("LIBRARY OPENCL`r`nEXPORTS`r`n" + ($names -join "`r`n")) | Set-Content vendor\OpenCL.def -Encoding ascii
+          lib /nologo /def:vendor\OpenCL.def /machine:x64 /out:vendor\OpenCL.lib
+      - name: Build
+        shell: cmd
+        run: win\build_gpu.cmd
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build\pkg | Out-Null
+          Copy-Item build\Release\FreeCRT.aex build\pkg\
+          Copy-Item Install_FreeCRT.cmd build\pkg\Install.cmd -ErrorAction SilentlyContinue
+          Compress-Archive build\pkg\* build\FreeCRT-windows-x64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeCRT-windows-x64
+          path: build/FreeCRT-windows-x64.zip
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/FreeCRT-windows-x64.zip
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch AE SDK
+        env:
+          AE_SDK_URL: ${{ secrets.AE_SDK_URL }}
+        run: |
+          test -n "$AE_SDK_URL" || { echo "Set the AE_SDK_URL repo secret."; exit 1; }
+          curl -sL "$AE_SDK_URL" -o sdk.zip
+          mkdir aesdk_dl && unzip -q sdk.zip -d aesdk_dl
+          H=$(find aesdk_dl -path '*Examples/Headers/AE_Effect.h' | head -1)
+          test -n "$H" || { echo "Examples/Headers/AE_Effect.h not found in SDK zip."; exit 1; }
+          echo "AE_SDK_PATH=$(dirname "$(dirname "$(dirname "$H")")")" >> "$GITHUB_ENV"
+      - name: Build
+        run: |
+          chmod +x mac/build_mac.sh
+          ./mac/build_mac.sh
+      - name: Package
+        run: |
+          cd build/mac && zip -ry ../FreeCRT-macos.zip FreeCRT.plugin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FreeCRT-macos
+          path: build/FreeCRT-macos.zip
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/FreeCRT-macos.zip
